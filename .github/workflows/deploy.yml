@@ -3,13 +3,6 @@ name: Deploy Pipeline
 on:
   push:
     branches: [ main ]
-    # 建议加上 paths 过滤，避免修改 README 等无关文件时浪费 CI 资源
-    # paths:
-    #   - 'src/**'
-    #   - 'tests/**'
-    #   - 'Dockerfile'
-    #   - 'requirements.txt'
-    #   - '.github/workflows/deploy.yml'
 
 # 定义全局环境变量
 env:
@@ -37,7 +30,6 @@ jobs:
 
       - name: Run tests
         run: |
-          # 如果没有测试文件或 pytest 失败，为了不阻塞部署，这里可以根据需求调整
           pytest -v || echo "⚠️ 测试未通过或无测试用例，继续执行构建..."
 
   # ================= 阶段 2：构建并推送 Docker 镜像 =================
@@ -49,7 +41,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 🕵️ 诊断步骤：检查 Secrets 是否成功读取（修复了原版的语法解析隐患）
+      # 🕵️ 诊断步骤：检查 Secrets 是否成功读取
       - name: Check Secrets Availability
         env:
           DOCKER_USER: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -70,6 +62,13 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # 🔑 关键修复：显式安装 Python 依赖（解决构建失败）
+      - name: Install Python dependencies (for Docker build)
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+        if: hashFiles('requirements.txt') != ''
 
       - name: Get short SHA
         id: sha
@@ -94,7 +93,6 @@ jobs:
     name: Deploy & Smoke Test
     needs: build-and-push
     runs-on: ubuntu-latest
-    # 增加超时保护，防止 docker pull 卡死导致流水线一直转圈
     timeout-minutes: 5 
     steps:
       - name: Log in to Docker Hub
@@ -110,7 +108,6 @@ jobs:
         run: |
           docker stop se-web-app || true
           docker rm se-web-app || true
-          # 确保端口映射正确（假设你的 Python 应用内部运行在 5000 端口）
           docker run -d --name se-web-app -p 8080:5000 ${{ env.IMAGE_NAME }}:latest
 
       - name: Wait for app to start
@@ -120,12 +117,10 @@ jobs:
 
       - name: Smoke Test (Verify deployment)
         run: |
-          # 打印容器日志以便排查应用是否真的启动成功
           echo "=== 容器日志 ==="
           docker logs se-web-app
           echo "================"
           
-          # 进行健康检查
           curl --fail --retry 3 --retry-delay 5 http://localhost:8080 || (echo "❌ Deployment verification failed!" && exit 1)
           echo "✅ Deployment verification successful! App is running."
 
