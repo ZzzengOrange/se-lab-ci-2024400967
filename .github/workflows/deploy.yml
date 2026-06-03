@@ -6,7 +6,7 @@ on:
 
 # 定义全局环境变量
 env:
-  IMAGE_NAME: zzzorange967/se-web-app
+  IMAGE_NAME: zzzzorange967/se-web-app
 
 jobs:
   # ================= 阶段 1：自动化测试 =================
