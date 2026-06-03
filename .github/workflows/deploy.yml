@@ -4,12 +4,12 @@ on:
   push:
     branches: [ main ]
 
-# 定义全局环境变量，方便后续引用
+# 定义全局环境变量
 env:
   IMAGE_NAME: zzzorange967/se-web-app
 
 jobs:
-  # --- 阶段 1：自动化测试 ---
+  # ================= 阶段 1：自动化测试 =================
   test:
     name: Run Unit Tests
     runs-on: ubuntu-latest
@@ -31,14 +31,27 @@ jobs:
       - name: Run tests
         run: pytest -v
 
-  # --- 阶段 2：构建并推送 Docker 镜像 ---
+  # ================= 阶段 2：构建并推送 Docker 镜像 =================
   build-and-push:
     name: Build & Push Image
-    needs: test  # 必须等测试通过才执行
+    needs: test
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # 🕵️ 诊断步骤：检查 Secrets 是否成功读取（不会泄露密码，只显示是否为空）
+      - name: Check Secrets Availability
+        run: |
+          if [ -z "${{ secrets.DOCKERHUB_USERNAME }}" ]; then
+            echo "❌ 错误：未找到 DOCKERHUB_USERNAME，请检查 GitHub Secrets 配置！"
+            exit 1
+          fi
+          if [ -z "${{ secrets.DOCKERHUB_TOKEN }}" ]; then
+            echo "❌ 错误：未找到 DOCKERHUB_TOKEN，请检查 GitHub Secrets 配置！"
+            exit 1
+          fi
+          echo "✅ Secrets 读取正常，准备登录 Docker Hub..."
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -46,7 +59,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # 获取 Git 提交的短哈希值（实验文档要求：标签需包含 commit-SHA）
       - name: Get short SHA
         id: sha
         run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
@@ -59,12 +71,11 @@ jobs:
         with:
           context: .
           push: true
-          # 按照实验要求，同时打上 latest 和 commit-SHA 标签
           tags: |
             ${{ env.IMAGE_NAME }}:latest
             ${{ env.IMAGE_NAME }}:${{ steps.sha.outputs.SHORT_SHA }}
 
-  # --- 阶段 3：本地部署与验证 (替代 SSH 远程部署) ---
+  # ================= 阶段 3：本地部署与验证 =================
   deploy-verify:
     name: Deploy & Smoke Test
     needs: build-and-push
@@ -81,20 +92,16 @@ jobs:
 
       - name: Deploy container locally
         run: |
-          # 停止并删除可能存在的旧容器
           docker stop se-web-app || true
           docker rm se-web-app || true
-          # 启动新容器，映射端口 (假设你的 Flask 应用运行在 5000 端口)
           docker run -d --name se-web-app -p 8080:5000 ${{ env.IMAGE_NAME }}:latest
 
       - name: Wait for app to start
-        run: sleep 5  # 等待容器完全启动
+        run: sleep 5
 
       - name: Smoke Test (Verify deployment)
         run: |
-          # 使用 curl 测试应用是否正常响应
-          # 如果应用根路径返回 200 OK，则部署验证成功
-          curl --fail http://localhost:8080 || (echo "Deployment verification failed!" && exit 1)
+          curl --fail http://localhost:8080 || (echo "❌ Deployment verification failed!" && exit 1)
           echo "✅ Deployment verification successful! App is running."
 
       - name: Show running containers
